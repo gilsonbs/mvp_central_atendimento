@@ -1,3 +1,4 @@
+import { evolutionWebhook } from './evolution.js';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
@@ -20,6 +21,7 @@ export async function createApp(pool: pg.Pool, secret: string) {
   const dummyHash = await hashPassword('unused-random-password-for-timing');
   app.disable('x-powered-by');
   app.use(helmet());
+  app.post('/webhooks/evolution/:secret', express.json({limit:'256kb'}), evolutionWebhook(pool));
   app.use(express.json({ limit: '32kb' }));
   app.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
   app.get('/health', async (_req, res) => { await pool.query('SELECT 1'); res.json({ status: 'ok' }); });
