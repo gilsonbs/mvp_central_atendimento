@@ -31,7 +31,7 @@ function WhatsAppMonitor({token}:{token:string}){
  void load();const timer=setInterval(()=>void load(),30000);return()=>{alive=false;controller.abort();clearInterval(timer);};},[token]);
  const open=!failed&&status?.apiStatus==='reachable'&&status.connectionState==='open';
  const label=failed?'Monitor indisponível':!status?'Verificando…':status.apiStatus==='not_configured'?'Não configurado':status.apiStatus!=='reachable'?'Falha na Evolution':open?'Sessão aberta':status.connectionState==='close'?'Desconectado':status.connectionState==='connecting'?'Conectando…':'Estado desconhecido';
- return <section aria-label="Monitor WhatsApp" style={{border:'1px solid currentColor',borderRadius:8,padding:10,margin:'8px 0',fontSize:12,overflowWrap:'anywhere'}}><strong>WhatsApp</strong><div role="status" style={{marginTop:5}}>{open?'🟢':!status&&!failed?'⚪':'🟠'} {label}</div><div style={{marginTop:5}}>Última entrada: {status?.lastIncomingAt?new Date(status.lastIncomingAt).toLocaleString('pt-BR'):'—'}</div><div>Recebimento atual: não verificado</div>{status&&<div>Consulta: {new Date(status.checkedAt).toLocaleTimeString('pt-BR')}</div>}</section>;
+ return <section aria-label="Monitor WhatsApp" style={{background:'#19483f',color:'#ffffff',border:'1px solid #527c72',borderRadius:8,padding:10,margin:'8px 0',fontSize:12,overflowWrap:'anywhere'}}><strong>WhatsApp</strong><div role="status" style={{marginTop:5}}>{open?'🟢':!status&&!failed?'⚪':'🟠'} {label}</div><div style={{marginTop:5}}>Última entrada: {status?.lastIncomingAt?new Date(status.lastIncomingAt).toLocaleString('pt-BR'):'—'}</div><div>Recebimento atual: não verificado</div>{status&&<div>Consulta: {new Date(status.checkedAt).toLocaleTimeString('pt-BR')}</div>}</section>;
 }
 
 function App(){
