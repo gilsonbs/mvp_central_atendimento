@@ -92,10 +92,45 @@ export async function createApp(pool: pg.Pool, secret: string) {
     const attendance = (await pool.query('SELECT id,seller_id,status FROM attendances WHERE id=$1', [id])).rows[0];
     if (!attendance) throw new AppError(404, 'Atendimento não encontrado.');
     if (actor.role !== 'admin' && (attendance.seller_id !== actor.id || attendance.status !== 'active')) throw new AppError(403, 'Acesso restrito ao atendimento.');
-    const result = await pool.query(`SELECT id,body,received_at FROM whatsapp_messages
+    const result = await pool.query(`SELECT id,body,received_at,direction,sender_id FROM whatsapp_messages
       WHERE attendance_id=$1 AND EXISTS (SELECT 1 FROM attendances a WHERE a.id=$1 AND ($2::boolean OR (a.seller_id=$3 AND a.status='active')))
       ORDER BY received_at DESC,id DESC LIMIT 200`, [id, actor.role === 'admin', actor.id]);
     res.json(result.rows.reverse());
+  });
+  app.post('/attendances/:id/messages', async (req, res) => {
+    const id = uuid.parse(req.params.id);
+    const actor: Actor = res.locals.actor;
+    const { text } = z.object({ text: z.string().trim().min(1).max(4000) }).parse(req.body);
+    const url = process.env.EVOLUTION_API_URL;
+    const key = process.env.EVOLUTION_API_KEY;
+    const instance = process.env.EVOLUTION_INSTANCE || 'central-teste';
+    if (!url || !key) throw new AppError(503, 'Envio WhatsApp não configurado.');
+    const db = await pool.connect();
+    try {
+      await db.query('BEGIN');
+      await db.query("SET LOCAL lock_timeout = '5s'");
+      const row = (await db.query(`SELECT a.status,a.seller_id,c.phone FROM attendances a JOIN customers c ON c.id=a.customer_id WHERE a.id=$1 FOR UPDATE OF a`, [id])).rows[0];
+      if (!row) throw new AppError(404, 'Atendimento não encontrado.');
+      if (actor.role !== 'admin' && row.seller_id !== actor.id) throw new AppError(403, 'Atendimento pertence a outro vendedor.');
+      if (row.status !== 'active') throw new AppError(409, 'Atendimento não está ativo.');
+      let response: globalThis.Response;
+      try {
+        response = await fetch(url.replace(/\/$/, '') + '/message/sendText/' + encodeURIComponent(instance), {
+          method: 'POST', headers: { apikey: key, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ number: String(row.phone).replace(/^\+/, ''), text }),
+          signal: AbortSignal.timeout(8000)
+        });
+      } catch { throw new AppError(502, 'Envio não confirmado. Confira o WhatsApp antes de tentar novamente.'); }
+      if (!response.ok) throw new AppError(502, 'Evolution não confirmou o envio. Confira o WhatsApp antes de repetir.');
+      const data = await response.json().catch(() => null);
+      const providerId = data?.key?.id;
+      if (typeof providerId !== 'string' || !providerId || providerId.length > 256) throw new AppError(502, 'Envio sem identificador confirmado. Confira o WhatsApp.');
+      const saved = (await db.query(`INSERT INTO whatsapp_messages(instance,provider_message_id,attendance_id,body,direction,sender_id)
+        VALUES($1,$2,$3,$4,'outgoing',$5) RETURNING id,body,received_at,direction,sender_id`, [instance,providerId,id,text,actor.id])).rows[0];
+      await db.query('COMMIT');
+      res.status(201).json(saved);
+    } catch (error) { await db.query('ROLLBACK'); throw error; }
+    finally { db.release(); }
   });
   app.get('/attendances/:id/events', requireAdmin, async (req, res) => {
     res.json((await pool.query('SELECT * FROM attendance_events WHERE attendance_id=$1 ORDER BY id', [uuid.parse(req.params.id)])).rows);
