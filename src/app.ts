@@ -94,7 +94,11 @@ export async function createApp(pool: pg.Pool, secret: string) {
     res.json(await engine.enqueue(res.locals.actor, data.customerId, data.priority));
   });
   app.get('/queue', async (_req, res) => {
-    res.json((await pool.query("SELECT a.*,c.name AS customer_name FROM attendances a JOIN customers c ON c.id=a.customer_id WHERE a.status='waiting' ORDER BY a.priority DESC,a.created_at,a.id LIMIT 200")).rows);
+    res.json((await pool.query(`SELECT a.*,c.name AS customer_name,prev.closed_at AS previous_closed_at,u.name AS previous_seller_name
+      FROM attendances a JOIN customers c ON c.id=a.customer_id
+      LEFT JOIN LATERAL (SELECT seller_id,closed_at FROM attendances p WHERE p.customer_id=a.customer_id AND p.status='closed' AND p.closed_at>=now()-interval '24 hours' ORDER BY p.closed_at DESC,p.id DESC LIMIT 1) prev ON true
+      LEFT JOIN users u ON u.id=prev.seller_id
+      WHERE a.status='waiting' ORDER BY a.priority DESC,a.created_at,a.id LIMIT 200`)).rows);
   });
   app.get('/queue/suggestion', async (_req, res) => { res.json(await engine.suggest()); });
   app.get('/attendances', async (_req, res) => {
