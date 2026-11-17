@@ -86,6 +86,17 @@ export async function createApp(pool: pg.Pool, secret: string) {
     const data = z.object({ sellerId: uuid }).parse(req.body);
     res.json(await engine.transfer(res.locals.actor, uuid.parse(req.params.id), data.sellerId));
   });
+  app.get('/attendances/:id/messages', async (req, res) => {
+    const id = uuid.parse(req.params.id);
+    const actor: Actor = res.locals.actor;
+    const attendance = (await pool.query('SELECT id,seller_id,status FROM attendances WHERE id=$1', [id])).rows[0];
+    if (!attendance) throw new AppError(404, 'Atendimento não encontrado.');
+    if (actor.role !== 'admin' && (attendance.seller_id !== actor.id || attendance.status !== 'active')) throw new AppError(403, 'Acesso restrito ao atendimento.');
+    const result = await pool.query(`SELECT id,body,received_at FROM whatsapp_messages
+      WHERE attendance_id=$1 AND EXISTS (SELECT 1 FROM attendances a WHERE a.id=$1 AND ($2::boolean OR (a.seller_id=$3 AND a.status='active')))
+      ORDER BY received_at DESC,id DESC LIMIT 200`, [id, actor.role === 'admin', actor.id]);
+    res.json(result.rows.reverse());
+  });
   app.get('/attendances/:id/events', requireAdmin, async (req, res) => {
     res.json((await pool.query('SELECT * FROM attendance_events WHERE attendance_id=$1 ORDER BY id', [uuid.parse(req.params.id)])).rows);
   });
