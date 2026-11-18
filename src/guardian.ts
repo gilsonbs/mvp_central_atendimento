@@ -1,4 +1,5 @@
 import type pg from 'pg';
+import { reconcileMessages } from './reconciliation.js';
 
 export async function checkWhatsApp(pool: pg.Pool) {
   const instance = process.env.EVOLUTION_INSTANCE || 'central-teste';
@@ -61,6 +62,8 @@ export function startGuardian(pool: pg.Pool) {
   const instance = process.env.EVOLUTION_INSTANCE || 'central-teste';
   let failed = false;
   let previousWebhook: string | null = null;
+  const reconciliationSince = Math.floor(Date.now() / 1000);
+  let nextReconciliation = 0;
   let pending: Promise<void> = Promise.resolve();
   async function tick() {
     try {
@@ -81,6 +84,15 @@ export function startGuardian(pool: pg.Pool) {
       if (webhook !== previousWebhook) {
         console.info('[Guardian]', JSON.stringify({ event: 'webhook_diagnostic', previous: previousWebhook, current: webhook, checkedAt: new Date().toISOString() }));
         previousWebhook = webhook;
+      }
+      if (status.apiStatus === 'reachable' && Date.now() >= nextReconciliation) {
+        nextReconciliation = Date.now() + 60000;
+        try {
+          const result = await reconcileMessages(pool, reconciliationSince);
+          console.info('[Guardian]', JSON.stringify({ event: 'reconciliation', ...result }));
+        } catch {
+          console.warn('[Guardian]', JSON.stringify({ event: 'reconciliation_failed', checkedAt: new Date().toISOString() }));
+        }
       }
       if (failed) console.info('[Guardian] Monitoramento restabelecido.');
       failed = false;
