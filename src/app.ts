@@ -51,6 +51,11 @@ export async function createApp(pool: pg.Pool, secret: string) {
     res.json(await checkWhatsApp(pool));
   });
 
+  app.get('/integrations/whatsapp/events', requireAdmin, async (_req, res) => {
+    const instance = process.env.EVOLUTION_INSTANCE || 'central-teste';
+    res.json((await pool.query('SELECT id,previous_state,current_state,checked_at,last_incoming_at FROM guardian_events WHERE instance=$1 ORDER BY id DESC LIMIT 100', [instance])).rows);
+  });
+
   app.post('/users', requireAdmin, async (req, res) => {
     const data = z.object({ name, email, password, role: z.enum(['admin', 'seller']).default('seller') }).parse(req.body);
     const hash = await hashPassword(data.password);
