@@ -1,3 +1,4 @@
+import { checkWhatsApp } from './guardian.js';
 import { evolutionWebhook } from './evolution.js';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import helmet from 'helmet';
@@ -47,29 +48,7 @@ export async function createApp(pool: pg.Pool, secret: string) {
 
   // Read-only diagnostic: a connected session does not prove inbound delivery.
   app.get('/integrations/whatsapp/status', async (_req, res) => {
-    const instance = process.env.EVOLUTION_INSTANCE || 'central-teste';
-    const url = process.env.EVOLUTION_API_URL;
-    const key = process.env.EVOLUTION_API_KEY;
-    const last = (await pool.query(
-      "SELECT max(received_at) AS last_incoming_at FROM whatsapp_messages WHERE instance=$1 AND direction='incoming'", [instance]
-    )).rows[0];
-    let apiStatus = 'not_configured';
-    let connectionState = 'unknown';
-    if (url && key) {
-      try {
-        const response = await fetch(url.replace(/\/$/, '') + '/instance/connectionState/' + encodeURIComponent(instance), {
-          headers: { apikey: key }, signal: AbortSignal.timeout(5000)
-        });
-        apiStatus = response.ok ? 'reachable' : 'http_error';
-        if (response.ok) {
-          const data = await response.json().catch(() => null);
-          const state = data?.instance?.state;
-          if (state === 'open' || state === 'close' || state === 'connecting') connectionState = state;
-        }
-      } catch { apiStatus = 'unreachable'; }
-    }
-    res.json({ apiStatus, connectionState, lastIncomingAt: last?.last_incoming_at ?? null,
-      checkedAt: new Date().toISOString(), inboundHealth: 'unverified' });
+    res.json(await checkWhatsApp(pool));
   });
 
   app.post('/users', requireAdmin, async (req, res) => {
