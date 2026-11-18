@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { z } from 'zod';
 import { createPool } from './db.js';
 import { createApp } from './app.js';
+import { startGuardian } from './guardian.js';
 const parsed = z.object({
   DATABASE_URL: z.string().url(), JWT_SECRET: z.string().min(32),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
@@ -16,7 +17,11 @@ const pool = createPool(config.DATABASE_URL);
 await pool.query('SELECT 1');
 const app = await createApp(pool, config.JWT_SECRET);
 const server = app.listen(config.PORT, config.HOST, () => console.log(`API em http://${config.HOST}:${config.PORT}`));
+const stopGuardian = startGuardian(pool);
+let shuttingDown = false;
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {
-  server.close(() => { void pool.end().then(() => process.exit(0)); });
+  if (shuttingDown) return;
+  shuttingDown = true;
+  server.close(() => { void stopGuardian().then(() => pool.end()).then(() => process.exit(0)); });
   setTimeout(() => process.exit(1), 10000).unref();
 });
