@@ -30,21 +30,32 @@ export async function checkWhatsApp(pool: pg.Pool) {
 export function startGuardian(pool: pg.Pool) {
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let previous = '';
+  let previous: string | null = null;
+  let loaded = false;
+  const instance = process.env.EVOLUTION_INSTANCE || 'central-teste';
+  let failed = false;
   let pending: Promise<void> = Promise.resolve();
   async function tick() {
     try {
+      if (!loaded) {
+        const row = (await pool.query('SELECT current_state FROM guardian_events WHERE instance=$1 ORDER BY id DESC LIMIT 1', [instance])).rows[0];
+        previous = row?.current_state ?? null;
+        loaded = true;
+      }
       const status = await checkWhatsApp(pool);
       const current = status.apiStatus + '/' + status.connectionState;
       if (current !== previous) {
+        await pool.query('INSERT INTO guardian_events(instance,previous_state,current_state,checked_at,last_incoming_at) VALUES($1,$2,$3,$4,$5)', [instance,previous,current,status.checkedAt,status.lastIncomingAt]);
         console.info('[Guardian]', JSON.stringify({ event: 'state_changed', previous: previous || null,
           current, checkedAt: status.checkedAt, lastIncomingAt: status.lastIncomingAt }));
         previous = current;
       }
+      if (failed) console.info('[Guardian] Monitoramento restabelecido.');
+      failed = false;
     } catch {
-      if (previous !== 'check_failed') {
+      if (!failed) {
         console.error('[Guardian]', JSON.stringify({ event: 'check_failed', checkedAt: new Date().toISOString() }));
-        previous = 'check_failed';
+        failed = true;
       }
     } finally {
       if (!stopped) timer = setTimeout(run, 30000);
